@@ -189,15 +189,15 @@ export function Claude() {
         role: "assistant",
         content: data.content[0].text,
         type: "text",
-        id: Date.now().toString()
+                        id: Date.now().toString()
       }]);
     } catch (error) {
-      setMessages(prevMessages => [...prevMessages, {
-        role: "assistant",
-        content: error instanceof Error ? error.message : "Sorry, there was an error processing your message.",
-        type: "text",
+        setMessages(prevMessages => [...prevMessages, {
+          role: "assistant",
+          content: error instanceof Error ? error.message : "Sorry, there was an error processing your message.",
+          type: "text",
         id: Date.now().toString()
-      }]);
+        }]);
     } finally {
       setIsLoading(false);
       setIsThinking(false);

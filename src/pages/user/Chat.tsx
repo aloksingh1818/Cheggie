@@ -6,7 +6,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState } from "react";
 import { Send } from "lucide-react";
 import { Toaster } from 'react-hot-toast';
-import { API_ENDPOINTS } from "@/config/api";
 
 export function Chat() {
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
@@ -21,7 +20,7 @@ export function Chat() {
     setInput("");
 
     try {
-      const response = await fetch(API_ENDPOINTS.chat.send, {
+      const response = await fetch("http://localhost:5000/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -31,7 +30,7 @@ export function Chat() {
       });
 
       const data = await response.json();
-      console.log('API response:', data);
+      console.log('OpenRouter API response:', data);
       if (!response.ok || !data.choices?.[0]?.message?.content) {
         console.error('Full backend response:', data);
         throw new Error(data?.error || 'Invalid response format');
