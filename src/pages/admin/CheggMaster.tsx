@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, Edit2, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, AreaChart, Area, PieChart, Pie, Cell, Legend } from "recharts";
+import { useAuth } from "@/hooks/useAuth";
 
 // --- Mock Data ---
 const initialExtensions = [
@@ -157,6 +158,7 @@ const mockQuestions = [
 ];
 
 export default function CheggMaster() {
+  const { user } = useAuth();
   const [extensions, setExtensions] = useState(initialExtensions);
   const [users, setUsers] = useState(initialUsers);
   const [editExt, setEditExt] = useState(null);
@@ -190,6 +192,13 @@ export default function CheggMaster() {
       (filters.cheggIdName === "" || q.cheggIdName.toLowerCase().includes(filters.cheggIdName.toLowerCase()))
     );
   }, [filters]);
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good Morning";
+    if (hour < 18) return "Good Afternoon";
+    return "Good Evening";
+  };
 
   // --- Extension Handlers ---
   const toggleStatus = (id) => {

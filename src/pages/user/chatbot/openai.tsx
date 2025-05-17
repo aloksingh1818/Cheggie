@@ -146,7 +146,6 @@ export function OpenAI() {
 
   const handleSend = useCallback(async () => {
     if ((!input.trim() && !selectedImage) || isLoading) return;
-
     setIsLoading(true);
     const newMessage: Message = {
       role: "user",
@@ -155,155 +154,46 @@ export function OpenAI() {
       id: Date.now().toString(),
       imageUrl: imagePreview || undefined
     };
-
     setMessages(prevMessages => [...prevMessages, newMessage]);
     setInput("");
     setSelectedImage(null);
     setImagePreview(null);
-
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const response = await fetch("/api/ai-models/openai-chat", {
         method: "POST",
-        headers: {
-          "Authorization": "Bearer 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",
-          "HTTP-Referer": window.location.origin,
-          "X-Title": "Cheggie AI Nexus",
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          "model": "openai/chatgpt-4o-latest",
-          "messages": [
-            {
-              "role": "system",
-              "content": "You are ChatGPT, an AI assistant created by OpenAI. You are helpful, creative, and knowledgeable. When analyzing images or answering questions, provide detailed, comprehensive responses. Include relevant examples, explanations, and context. For image analysis, describe all visible elements, their relationships, and any notable details. For text queries, provide thorough explanations with supporting information. Aim for detailed, well-structured responses that fully address the user's query."
-            },
-            ...messages.map(msg => ({
-              role: msg.role,
-              content: msg.type === "image" 
-                ? [
-                    {
-                      type: "text",
-                      text: msg.content || "Please provide a detailed analysis of this image, describing all visible elements, their relationships, and any notable details."
-                    },
-                    {
-                      type: "image_url",
-                      image_url: {
-                        url: msg.imageUrl
-                      }
-                    }
-                  ]
-                : msg.content
-            })),
-            {
-              role: "user",
-              content: selectedImage && imagePreview
-                ? [
-                    {
-                      type: "text",
-                      text: input || "Please provide a detailed analysis of this image, describing all visible elements, their relationships, and any notable details."
-                    },
-                    {
-                      type: "image_url",
-                      image_url: {
-                        url: imagePreview
-                      }
-                    }
-                  ]
-                : input
-            }
+          model: "gpt-3.5-turbo",
+          messages: [
+            { role: "system", content: "You are ChatGPT, an AI assistant created by OpenAI. You are helpful, creative, and knowledgeable. When analyzing images or answering questions, provide detailed, comprehensive responses. Include relevant examples, explanations, and context. For image analysis, describe all visible elements, their relationships, and any notable details. For text queries, provide thorough explanations with supporting information. Aim for detailed, well-structured responses that fully address the user's query." },
+            ...messages.map(msg => ({ role: msg.role, content: msg.content })),
+            { role: "user", content: input }
           ],
-          "temperature": 0.7,
-          "max_tokens": 2000,
-          "stream": true
-        }),
-        signal: controller.signal
+          temperature: 0.7,
+          max_tokens: 1000
+        })
       });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error("API Error:", errorData);
-        throw new Error(errorData.error?.message || `API error: ${response.status}`);
+      const data = await response.json();
+      if (!response.ok || !data.choices?.[0]?.message?.content) {
+        throw new Error(data.error || 'Invalid response format');
       }
-
-      const reader = response.body?.getReader();
-      let accumulatedResponse = "";
-      const assistantMessageId = Date.now().toString();
-
-      // Add initial assistant message
       setMessages(prevMessages => [...prevMessages, {
-        role: 'assistant',
-        content: '',
-        type: 'text',
-        id: assistantMessageId
+        role: "assistant",
+        content: data.choices[0].message.content,
+        type: "text",
+        id: Date.now().toString()
       }]);
-
-      if (!reader) {
-        throw new Error("Failed to initialize response reader");
-      }
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = new TextDecoder().decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim() !== '');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') continue;
-
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices[0]?.delta?.content || '';
-              if (content) {
-                accumulatedResponse += content;
-                setMessages(prevMessages => 
-                  prevMessages.map(msg => 
-                    msg.id === assistantMessageId 
-                      ? { ...msg, content: accumulatedResponse }
-                      : msg
-                  )
-                );
-              }
-            } catch (e) {
-              console.error('Error parsing chunk:', e, 'Raw data:', data);
-            }
-          }
-        }
-      }
-
-      if (!accumulatedResponse) {
-        throw new Error("No response received from the API");
-      }
-
     } catch (error) {
-      console.error("Error in handleSend:", error);
-      setMessages(prevMessages => {
-        const newMessages = [...prevMessages];
-        const lastMessage = newMessages[newMessages.length - 1];
-        if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.content = error instanceof Error ? error.message : "Sorry, there was an error processing your message.";
-        } else {
-          newMessages.push({
-            role: "assistant",
-            content: error instanceof Error ? error.message : "Sorry, there was an error processing your message.",
-            type: "text",
-            id: Date.now().toString()
-          });
-        }
-        return newMessages;
-      });
-      toast.error(error instanceof Error ? error.message : "Failed to get response from ChatGPT");
+      setMessages(prevMessages => [...prevMessages, {
+        role: "assistant",
+        content: error instanceof Error ? error.message : "Sorry, there was an error processing your message.",
+        type: "text",
+        id: Date.now().toString()
+      }]);
     } finally {
       setIsLoading(false);
     }
-  }, [input, messages, isLoading, selectedImage, imagePreview]);
+  }, [input, messages, selectedImage, imagePreview, isLoading]);
 
   const handleModelSwitch = (model: string) => {
     navigate(`/chatbot/${model.toLowerCase()}`);

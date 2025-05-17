@@ -154,7 +154,6 @@ export function Claude() {
 
   const handleSend = useCallback(async () => {
     if ((!input.trim() && !selectedImage) || isLoading) return;
-
     setIsLoading(true);
     setIsThinking(true);
     const newMessage: Message = {
@@ -164,177 +163,41 @@ export function Claude() {
       id: Date.now().toString(),
       imageUrl: imagePreview || undefined
     };
-
     setMessages(prevMessages => [...prevMessages, newMessage]);
     setInput("");
     setSelectedImage(null);
     setImagePreview(null);
-
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const response = await fetch("/api/ai-models/claude-chat", {
         method: "POST",
-        headers: {
-          "Authorization": "Bearer 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",
-          "HTTP-Referer": window.location.origin,
-          "X-Title": "Cheggie AI Nexus",
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          "model": "anthropic/claude-3.7-sonnet",
-          "messages": [
-            {
-              "role": "system",
-              "content": useChegggPrompt ? 
-                `You are a specialized AI tutor that provides step-by-step solutions to problems. Follow these rules strictly:
-
-1. Always structure your response in exactly 3 steps plus a final summary:
-   - Step 1: Initial Analysis
-   - Step 2: Detailed Solution
-   - Step 3: Verification
-   - Final Summary
-
-2. Use markdown formatting:
-   - Use **bold** for key terms
-   - Use \`code\` for formulas
-   - Use LaTeX for equations: $E = mc^2$
-   - Use bullet points for lists
-   - Use numbered lists for steps
-
-3. Keep each step concise but complete
-4. Always end with a clear final summary
-5. If the question is not a problem to solve, adapt the format to provide a clear, structured response` :
-                "You are Claude, an AI assistant created by Anthropic. You are helpful, creative, and knowledgeable. When analyzing images or answering questions, provide detailed, comprehensive responses. Include relevant examples, explanations, and context. For image analysis, describe all visible elements, their relationships, and any notable details. For text queries, provide thorough explanations with supporting information. Aim for detailed, well-structured responses that fully address the user's query."
-            },
-            ...messages.map(msg => ({
-              role: msg.role,
-              content: msg.type === "image" 
-                ? [
-                    {
-                      type: "text",
-                      text: msg.content || "What is in this image?"
-                    },
-                    {
-                      type: "image_url",
-                      image_url: {
-                        url: msg.imageUrl
-                      }
-                    }
-                  ]
-                : msg.content
-            })),
-            {
-              role: "user",
-              content: selectedImage && imagePreview
-                ? [
-                    {
-                      type: "text",
-                      text: input || "What is in this image?"
-                    },
-                    {
-                      type: "image_url",
-                      image_url: {
-                        url: imagePreview
-                      }
-                    }
-                  ]
-                : input
-            }
+          model: "claude-3-opus-20240229",
+          messages: [
+            { role: "system", content: "You are Claude, an AI assistant created by Anthropic. You are helpful, creative, and knowledgeable. When analyzing images or answering questions, provide detailed, comprehensive responses. Include relevant examples, explanations, and context. For image analysis, describe all visible elements, their relationships, and any notable details. For text queries, provide thorough explanations with supporting information. Aim for detailed, well-structured responses that fully address the user's query." },
+            ...messages.map(msg => ({ role: msg.role, content: msg.content })),
+            { role: "user", content: input }
           ],
-          "temperature": 0.7,
-          "max_tokens": 4000,
-          "stream": true
-        }),
-        signal: controller.signal
+          max_tokens: 1000
+        })
       });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || `API error: ${response.status}`);
+      const data = await response.json();
+      if (!response.ok || !data.content?.[0]?.text) {
+        throw new Error(data.error || 'Invalid response format');
       }
-
-      const reader = response.body?.getReader();
-      let accumulatedResponse = "";
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = new TextDecoder().decode(value);
-          const lines = chunk.split('\n').filter(line => line.trim() !== '');
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (data === '[DONE]') continue;
-
-              try {
-                const parsed = JSON.parse(data);
-                let content = '';
-
-                // Standard OpenAI/Anthropic streaming format
-                if (
-                  parsed &&
-                  typeof parsed === 'object' &&
-                  Array.isArray(parsed.choices) &&
-                  parsed.choices.length > 0 &&
-                  parsed.choices[0] &&
-                  parsed.choices[0].delta &&
-                  typeof parsed.choices[0].delta.content === 'string'
-                ) {
-                  content = parsed.choices[0].delta.content;
-                } else if (typeof parsed.content === 'string') {
-                  // Fallback: some APIs may just send { content: "..." }
-                  content = parsed.content;
-                }
-
-                // Debug: log every chunk
-                console.log('Claude chunk:', parsed);
-
-                if (content) {
-                  accumulatedResponse += content;
-                  setMessages(prevMessages => {
-                    const newMessages = [...prevMessages];
-                    const lastMessage = newMessages[newMessages.length - 1];
-                    if (lastMessage && lastMessage.role === 'assistant') {
-                      lastMessage.content = accumulatedResponse;
-                    } else {
-                      newMessages.push({
-                        role: 'assistant',
-                        content: accumulatedResponse,
-                        type: 'text',
-                        id: Date.now().toString()
-                      });
-                    }
-                    return newMessages;
-                  });
-                }
-              } catch (e) {
-                console.error('Error parsing chunk:', e, data);
-                continue;
-              }
-            }
-          }
-        }
-      }
+      setMessages(prevMessages => [...prevMessages, {
+        role: "assistant",
+        content: data.content[0].text,
+        type: "text",
+        id: Date.now().toString()
+      }]);
     } catch (error) {
-      console.error("Error:", error);
-      if (error.name === 'AbortError') {
-        toast.error("Request timed out. Please try again.");
-      } else {
-        setMessages(prevMessages => [...prevMessages, {
-          role: "assistant",
-          content: error instanceof Error ? error.message : "Sorry, there was an error processing your message.",
-          type: "text",
-          id: (Date.now() + 1).toString()
-        }]);
-        toast.error("Failed to get response from Claude");
-      }
+      setMessages(prevMessages => [...prevMessages, {
+        role: "assistant",
+        content: error instanceof Error ? error.message : "Sorry, there was an error processing your message.",
+        type: "text",
+        id: Date.now().toString()
+      }]);
     } finally {
       setIsLoading(false);
       setIsThinking(false);

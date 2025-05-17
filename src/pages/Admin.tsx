@@ -7,13 +7,30 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Users, Settings, Activity, Shield, LogOut, MessageSquare, CreditCard, BookOpen } from "lucide-react";
-import { useNavigate, Routes, Route } from "react-router-dom";
+import { useNavigate, Routes, Route, useLocation } from "react-router-dom";
 import AdminCheggManagement from "./AdminCheggManagement";
-import CheggMaster from './CheggMaster';
-
+import CheggMaster from './admin/CheggMaster';
+import { useAuth } from "@/hooks/useAuth";
+import { AdminOpenAI } from "./admin/chatbot/OpenAI";
+import { AdminGemini } from "./admin/chatbot/Gemini";
+import { AdminClaude } from "./admin/chatbot/Claude";
+import { AdminSettings } from "@/pages/admin/Settings";
+import { AdminCredits } from "@/pages/admin/Credits";
+import { AdminDeepSeek } from "./admin/chatbot/DeepSeek";
+import { useEffect } from "react";
 
 export function Admin() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
+
+  // Check if user is admin
+  useEffect(() => {
+    const role = localStorage.getItem("role");
+    if (role !== "admin") {
+      navigate("/login");
+    }
+  }, [navigate]);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -67,7 +84,7 @@ export function Admin() {
             {navItems.map((item) => (
               <Button
                 key={item.name}
-                variant="ghost"
+                variant={location.pathname === item.path ? "secondary" : "ghost"}
                 className="w-full justify-start"
                 onClick={() => navigate(item.path)}
               >
@@ -89,9 +106,11 @@ export function Admin() {
       {/* Main Content */}
       <div className="flex-1 overflow-auto p-6">
         <Routes>
-          <Route path="/" element={<AdminDashboard />} />
+          <Route index element={<AdminDashboard />} />
           <Route path="chegg-master" element={<CheggMaster />} />
-          {/* Add other routes as needed */}
+          <Route path="chatbot" element={<AdminChatbot />} />
+          <Route path="credits" element={<AdminCredits />} />
+          <Route path="settings" element={<AdminSettings />} />
         </Routes>
       </div>
     </div>
@@ -100,6 +119,15 @@ export function Admin() {
 
 // Dashboard Component
 function AdminDashboard() {
+  const { user } = useAuth();
+  
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good Morning";
+    if (hour < 18) return "Good Afternoon";
+    return "Good Evening";
+  };
+
   const stats = [
     {
       title: "Total Users",
@@ -131,7 +159,7 @@ function AdminDashboard() {
     <div className="flex flex-col gap-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{getGreeting()}, {user?.name || 'Admin'}</h1>
           <p className="text-muted-foreground">
             Manage users, monitor system, and configure settings
           </p>
@@ -232,16 +260,7 @@ function AdminDashboard() {
                     Allow users to access the chatbot feature
                   </p>
                 </div>
-                <Switch defaultChecked />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <label className="text-sm font-medium">Message Limit</label>
-                  <p className="text-sm text-muted-foreground">
-                    Maximum messages per user per day
-                  </p>
-                </div>
-                <Input type="number" defaultValue="100" className="w-24" />
+                <Switch />
               </div>
             </CardContent>
           </Card>
@@ -255,24 +274,49 @@ function AdminDashboard() {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <label className="text-sm font-medium">Credit Price</label>
+                  <label className="text-sm font-medium">Enable Credit System</label>
                   <p className="text-sm text-muted-foreground">
-                    Price per credit in USD
+                    Allow users to use credits for premium features
                   </p>
                 </div>
-                <Input type="number" defaultValue="0.10" className="w-24" />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <label className="text-sm font-medium">Welcome Credits</label>
-                  <p className="text-sm text-muted-foreground">
-                    Credits given to new users
-                  </p>
-                </div>
-                <Input type="number" defaultValue="10" className="w-24" />
+                <Switch defaultChecked />
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// Admin Chatbot Component
+function AdminChatbot() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Chatbot Management</h1>
+        <p className="text-muted-foreground">
+          Manage and configure AI chatbot settings
+        </p>
+      </div>
+      <Tabs defaultValue="openai" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="openai">OpenAI</TabsTrigger>
+          <TabsTrigger value="gemini">Gemini</TabsTrigger>
+          <TabsTrigger value="claude">Claude</TabsTrigger>
+          <TabsTrigger value="deepseek">DeepSeek</TabsTrigger>
+        </TabsList>
+        <TabsContent value="openai">
+          <AdminOpenAI />
+        </TabsContent>
+        <TabsContent value="gemini">
+          <AdminGemini />
+        </TabsContent>
+        <TabsContent value="claude">
+          <AdminClaude />
+        </TabsContent>
+        <TabsContent value="deepseek">
+          <AdminDeepSeek />
         </TabsContent>
       </Tabs>
     </div>

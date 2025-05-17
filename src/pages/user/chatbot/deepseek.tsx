@@ -10,6 +10,8 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { marked } from "marked";
+import { InlineMath, BlockMath } from 'react-katex';
+import 'katex/dist/katex.min.css';
 
 interface Message {
   role: string;
@@ -93,41 +95,14 @@ export function DeepSeek() {
       toast.error("No text to copy");
       return;
     }
-
     try {
-      // Create a temporary textarea element
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      
-      // Select and copy the text
-      textarea.select();
-      const successful = document.execCommand('copy');
-      
-      // Clean up
-      document.body.removeChild(textarea);
-
-      if (successful) {
-        setCopiedId(id);
-        toast.success("Copied to clipboard!");
-        setTimeout(() => setCopiedId(null), 2000);
-      } else {
-        throw new Error('Copy command failed');
-      }
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      toast.success("Copied to clipboard!");
+      setTimeout(() => setCopiedId(null), 2000);
     } catch (err) {
       console.error("Copy failed:", err);
-      // Fallback to clipboard API if available
-      try {
-        await navigator.clipboard.writeText(text);
-        setCopiedId(id);
-        toast.success("Copied to clipboard!");
-        setTimeout(() => setCopiedId(null), 2000);
-      } catch (clipboardErr) {
-        console.error("Clipboard API failed:", clipboardErr);
-        toast.error("Failed to copy text. Please try selecting and copying manually.");
-      }
+      toast.error("Failed to copy text. Please try selecting and copying manually.");
     }
   };
 
@@ -163,153 +138,88 @@ export function DeepSeek() {
   const handleSend = useCallback(async () => {
     if ((!input.trim() && !selectedImage) || isLoading) return;
 
+    const token = localStorage.getItem("token");
+    if (!token) {
+      toast.error("Please log in to continue");
+      navigate("/login");
+      return;
+    }
+
     setIsLoading(true);
     setIsThinking(true);
-    const newMessage: Message = {
-      role: "user",
-      content: input,
-      type: selectedImage ? "image" : "text",
-      id: Date.now().toString(),
-      imageUrl: imagePreview || undefined
-    };
 
-    setMessages(prevMessages => [...prevMessages, newMessage]);
+    const newMessages: Message[] = [];
+    if (input.trim()) {
+      newMessages.push({
+        role: "user",
+        content: input,
+        type: "text",
+        id: Date.now().toString()
+      });
+    }
+    if (selectedImage && imagePreview) {
+      newMessages.push({
+        role: "user",
+        content: "Analyze this image:",
+        type: "image",
+        id: (Date.now() + 1).toString(),
+        imageUrl: imagePreview
+      });
+    }
+
+    setMessages(prevMessages => [...prevMessages, ...newMessages]);
     setInput("");
     setSelectedImage(null);
     setImagePreview(null);
+    setUseChegggPrompt(false);
 
     try {
-      // Prepare the message content based on whether there's an image
-      let messageContent = input;
-      if (selectedImage && imagePreview) {
-        messageContent = `[Image Analysis Request]\n${input}\n\nImage Data: ${imagePreview}`;
-      }
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const response = await fetch("/api/ai-models/deepseek-chat", {
         method: "POST",
         headers: {
-          "Authorization": "Bearer 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",
-          "HTTP-Referer": window.location.origin,
-          "X-Title": "Cheggie AI Nexus",
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
         },
         body: JSON.stringify({
-          "model": "deepseek/deepseek-r1:free",
-          "messages": [
-            {
-              "role": "system",
-              "content": useChegggPrompt ? 
-                `You are a specialized AI tutor that provides step-by-step solutions to problems. Follow these rules strictly:
-
-1. Always structure your response in exactly 3 steps wise  plus a final summary:
-   - Step 1: Initial Analysis
-   - Step 2: Detailed Solution
-   - Step 3: Verification
-   - Final Summary
-
-2. Use markdown formatting:
-   - Use **bold** for key terms
-   - Use \`code\` for formulas
-   - Use LaTeX for equations: $E = mc^2$
-   - Use bullet points for lists
-   - Use numbered lists for steps
-
-3. Keep each step concise but complete
-4. Always end with a clear final summary
-5. If the question is not a problem to solve, adapt the format to provide a clear, structured response` :
-                "You are DeepSeek, an advanced AI assistant. You are helpful, creative, and knowledgeable. When analyzing images or answering questions, provide detailed, comprehensive responses. Include relevant examples, explanations, and context. For image analysis, describe all visible elements, their relationships, and any notable details. For text queries, provide thorough explanations with supporting information. Aim for detailed, well-structured responses that fully address the user's query."
-            },
-            ...messages.map(msg => ({
-              role: msg.role,
-              content: msg.type === "image" 
-                ? `[Image Analysis Request]\n${msg.content}\n\nImage Data: ${msg.imageUrl}`
-                : msg.content
-            })),
-            {
-              role: "user",
-              content: messageContent
-            }
+          messages: [
+            ...messages.map(msg => ({ role: msg.role, content: msg.content })),
+            ...newMessages.map(msg => ({ role: msg.role, content: msg.content }))
           ],
-          "temperature": 0.7,
-          "max_tokens": 4000,
-          "stream": true
-        }),
-        signal: controller.signal
+          useChegggPrompt
+        })
       });
-
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error?.message || `API error: ${response.status}`);
       }
 
-      const reader = response.body?.getReader();
-      let accumulatedResponse = "";
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = new TextDecoder().decode(value);
-          const lines = chunk.split('\n').filter(line => line.trim() !== '');
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (data === '[DONE]') continue;
-
-              try {
-                const parsed = JSON.parse(data);
-                const content = parsed.choices[0]?.delta?.content || '';
-                if (content) {
-                  accumulatedResponse += content;
-                  setMessages(prevMessages => {
-                    const newMessages = [...prevMessages];
-                    const lastMessage = newMessages[newMessages.length - 1];
-                    if (lastMessage && lastMessage.role === 'assistant') {
-                      lastMessage.content = accumulatedResponse;
-                    } else {
-                      newMessages.push({
-                        role: 'assistant',
-                        content: accumulatedResponse,
-                        type: 'text',
-                        id: Date.now().toString()
-                      });
-                    }
-                    return newMessages;
-                  });
-                }
-              } catch (e) {
-                console.error('Error parsing chunk:', e);
-              }
-            }
-          }
-        }
+      const data = await response.json();
+      
+      if (!data.choices?.[0]?.message?.content) {
+        throw new Error('Invalid response format');
       }
+
+      setMessages(prevMessages => [...prevMessages, {
+        role: "assistant",
+        content: data.choices[0].message.content,
+        type: "text",
+        id: (Date.now() + 2).toString()
+      }]);
     } catch (error) {
       console.error("Error:", error);
-      if (error.name === 'AbortError') {
-        toast.error("Request timed out. Please try again.");
-      } else {
-        setMessages(prevMessages => [...prevMessages, {
-          role: "assistant",
-          content: error instanceof Error ? error.message : "Sorry, there was an error processing your message.",
-          type: "text",
-          id: (Date.now() + 1).toString()
-        }]);
-        toast.error("Failed to get response from DeepSeek");
-      }
+      setMessages(prevMessages => [...prevMessages, {
+        role: "assistant",
+        content: error instanceof Error ? error.message : "Sorry, there was an error processing your message.",
+        type: "text",
+        id: (Date.now() + 1).toString()
+      }]);
+      toast.error(error instanceof Error ? error.message : "Failed to get response from DeepSeek");
     } finally {
       setIsLoading(false);
       setIsThinking(false);
-      setUseChegggPrompt(false);
     }
-  }, [input, messages, isLoading, selectedImage, imagePreview, useChegggPrompt]);
+  }, [input, messages, isLoading, selectedImage, imagePreview, useChegggPrompt, navigate]);
 
   const renderMessage = (message: Message, index: number) => {
     const isUser = message.role === "user";
@@ -348,7 +258,7 @@ export function DeepSeek() {
               {message.isRaw ? (
                 <pre className="text-sm">{messageText}</pre>
               ) : (
-                <div dangerouslySetInnerHTML={{ __html: marked(messageText) }} />
+                <KatexMarkdownRenderer markdown={messageText} />
               )}
             </div>
           </div>
@@ -571,5 +481,53 @@ export function DeepSeek() {
         </div>
       </div>
     </Layout>
+  );
+}
+
+function KatexMarkdownRenderer({ markdown }: { markdown: string }) {
+  // Split the markdown into parts: text, inline math ($...$), and block math ($$...$$)
+  // This is a simple parser; for more complex needs, use a markdown-it plugin
+  const parts = [];
+  let text = markdown;
+  const blockMathRegex = /\$\$([\s\S]+?)\$\$/g;
+  let lastIndex = 0;
+  let match;
+  while ((match = blockMathRegex.exec(markdown))) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', value: markdown.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: 'block', value: match[1] });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < markdown.length) {
+    text = markdown.slice(lastIndex);
+  } else {
+    text = '';
+  }
+  // Now split the remaining text by inline math
+  const inlineMathRegex = /\$([^$\n]+?)\$/g;
+  let lastInline = 0;
+  let inlineMatch;
+  while ((inlineMatch = inlineMathRegex.exec(text))) {
+    if (inlineMatch.index > lastInline) {
+      parts.push({ type: 'text', value: text.slice(lastInline, inlineMatch.index) });
+    }
+    parts.push({ type: 'inline', value: inlineMatch[1] });
+    lastInline = inlineMatch.index + inlineMatch[0].length;
+  }
+  if (lastInline < text.length) {
+    parts.push({ type: 'text', value: text.slice(lastInline) });
+  }
+  // Render all parts, stripping unmatched $ or $$
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.type === 'block') return <BlockMath key={i}>{part.value}</BlockMath>;
+        if (part.type === 'inline') return <InlineMath key={i}>{part.value}</InlineMath>;
+        // Strip any unmatched $ or $$ from text parts
+        const clean = part.value.replace(/\${1,2}/g, '');
+        return <span key={i} dangerouslySetInnerHTML={{ __html: marked(clean) }} />;
+      })}
+    </>
   );
 }

@@ -1,38 +1,38 @@
-import { Layout } from "@/components/layout/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Send, Bot, Trash2, Copy, Check, Image as ImageIcon, X, Sparkles, Plus, MessageSquare, Paperclip, Mic } from "lucide-react";
+import { Send, Loader2, Bot, Trash2, Copy, Check, Image as ImageIcon, X, Sparkles, Plus, MessageSquare, Code } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { marked } from "marked";
+import { useNavigate } from "react-router-dom";
+import { InlineMath, BlockMath } from 'react-katex';
+import 'katex/dist/katex.min.css';
 
 interface Message {
-  id: string;
   role: string;
   content: string;
-  type: "text" | "image" | "file" | "voice";
+  type: "text" | "image";
+  id: string;
   imageUrl?: string;
-  fileUrl?: string;
-  fileName?: string;
+  isRaw?: boolean;
 }
 
-export function Gemini() {
+export function AdminDeepSeek() {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>(() => {
-    const savedMessages = localStorage.getItem('gemini-chat-history');
+    const savedMessages = localStorage.getItem('admin-deepseek-chat-history');
     return savedMessages ? JSON.parse(savedMessages) : [];
   });
   const [chatHistory, setChatHistory] = useState<{ id: string; title: string; timestamp: number }[]>(() => {
-    const savedHistory = localStorage.getItem('gemini-chat-sessions');
+    const savedHistory = localStorage.getItem('admin-deepseek-chat-sessions');
     return savedHistory ? JSON.parse(savedHistory) : [];
   });
   const [currentChatId, setCurrentChatId] = useState<string>(() => {
-    const savedId = localStorage.getItem('gemini-current-chat');
+    const savedId = localStorage.getItem('admin-deepseek-current-chat');
     return savedId || Date.now().toString();
   });
   const [input, setInput] = useState("");
@@ -41,24 +41,30 @@ export function Gemini() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const [isRecording, setIsRecording] = useState(false);
   const [useChegggPrompt, setUseChegggPrompt] = useState(false);
-  const [showRaw, setShowRaw] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Check authentication on component mount
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      toast.error("Please log in to access the admin chat");
+      navigate("/login");
+    }
+  }, [navigate]);
+
   // Save chat history whenever it changes
   useEffect(() => {
-    localStorage.setItem('gemini-chat-sessions', JSON.stringify(chatHistory));
-    localStorage.setItem('gemini-current-chat', currentChatId);
+    localStorage.setItem('admin-deepseek-chat-sessions', JSON.stringify(chatHistory));
+    localStorage.setItem('admin-deepseek-current-chat', currentChatId);
   }, [chatHistory, currentChatId]);
 
   // Save messages for current chat
   useEffect(() => {
     if (messages.length > 0) {
-      localStorage.setItem(`gemini-chat-${currentChatId}`, JSON.stringify(messages));
+      localStorage.setItem(`admin-deepseek-chat-${currentChatId}`, JSON.stringify(messages));
     }
   }, [messages, currentChatId]);
 
@@ -84,92 +90,9 @@ export function Gemini() {
     inputRef.current?.focus();
   }, []);
 
-  // Check authentication on component mount
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      navigate("/login");
-    }
-  }, [navigate]);
-
-  const createNewChat = () => {
-    const newChatId = Date.now().toString();
-    const newChat = {
-      id: newChatId,
-      title: "New Chat",
-      timestamp: Date.now()
-    };
-    setChatHistory(prev => [newChat, ...prev]);
-    setCurrentChatId(newChatId);
-    setMessages([]);
-    setSelectedImage(null);
-    setImagePreview(null);
-    localStorage.setItem('gemini-chat-history', JSON.stringify([]));
-  };
-
-  const switchChat = (chatId: string) => {
-    setCurrentChatId(chatId);
-    const savedMessages = localStorage.getItem(`gemini-chat-${chatId}`);
-    setMessages(savedMessages ? JSON.parse(savedMessages) : []);
-  };
-
-  const copyToClipboard = async (text: string, id: string) => {
-    if (!text) {
-      toast.error("No text to copy");
-      return;
-    }
-
-    try {
-      // Create a temporary textarea element
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      
-      // Select and copy the text
-      textarea.select();
-      const successful = document.execCommand('copy');
-      
-      // Clean up
-      document.body.removeChild(textarea);
-
-      if (successful) {
-        setCopiedId(id);
-        toast.success("Copied to clipboard!");
-        setTimeout(() => setCopiedId(null), 2000);
-      } else {
-        throw new Error('Copy command failed');
-      }
-    } catch (err) {
-      console.error("Copy failed:", err);
-      // Fallback to clipboard API if available
-      try {
-        await navigator.clipboard.writeText(text);
-        setCopiedId(id);
-        toast.success("Copied to clipboard!");
-        setTimeout(() => setCopiedId(null), 2000);
-      } catch (clipboardErr) {
-        console.error("Clipboard API failed:", clipboardErr);
-        toast.error("Failed to copy text. Please try selecting and copying manually.");
-      }
-    }
-  };
-
-  const clearChat = () => {
-    setMessages([]);
-    setSelectedImage(null);
-    setImagePreview(null);
-    toast.success("Chat cleared!");
-  };
-
-  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
-        toast.error("Image size should be less than 5MB");
-        return;
-      }
       setSelectedImage(file);
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -183,95 +106,137 @@ export function Gemini() {
     setSelectedImage(null);
     setImagePreview(null);
     if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+      fileInputRef.current.value = '';
     }
   };
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    setAttachments([...attachments, ...files]);
+  const copyToClipboard = async (text: string, id: string) => {
+    if (!text) {
+      toast.error("No text to copy");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      toast.success("Copied to clipboard!");
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      // Fallback for older browsers or permission issues
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (successful) {
+          setCopiedId(id);
+          toast.success("Copied to clipboard!");
+          setTimeout(() => setCopiedId(null), 2000);
+        } else {
+          throw new Error('Fallback copy command failed');
+        }
+      } catch (fallbackErr) {
+        console.error("Copy failed:", fallbackErr);
+        toast.error("Failed to copy text. Please try selecting and copying manually.");
+      }
+    }
   };
 
-  const removeAttachment = (index: number) => {
-    setAttachments(attachments.filter((_, i) => i !== index));
-  };
-
-  const handleChegggPromptClick = () => {
-    setUseChegggPrompt(true);
+  const clearChat = () => {
+    setMessages([]);
+    localStorage.removeItem(`admin-deepseek-chat-${currentChatId}`);
   };
 
   const handleSend = useCallback(async () => {
-    if ((!input.trim() && !selectedImage && attachments.length === 0) || isLoading) return;
+    if ((!input.trim() && !selectedImage) || isLoading) return;
+
+    const token = localStorage.getItem("token");
+    if (!token) {
+      toast.error("Please log in to continue");
+      navigate("/login");
+      return;
+    }
+
     setIsLoading(true);
     setIsThinking(true);
+
     const newMessages: Message[] = [];
     if (input.trim()) {
-      newMessages.push({ id: Date.now().toString(), role: "user", content: input, type: "text" });
-    }
-    if (selectedImage) {
       newMessages.push({
         role: "user",
-        content: selectedImage.name,
+        content: input,
+        type: "text",
+        id: Date.now().toString()
+      });
+    }
+    if (selectedImage && imagePreview) {
+      newMessages.push({
+        role: "user",
+        content: "Analyze this image:",
         type: "image",
-        id: Date.now().toString(),
-        imageUrl: imagePreview || undefined
+        id: (Date.now() + 1).toString(),
+        imageUrl: imagePreview
       });
     }
-    for (const file of attachments) {
-      newMessages.push({
-        role: "user",
-        content: file.name,
-        type: file.type.startsWith("image/") ? "image" : "file",
-        id: Date.now().toString(),
-        fileUrl: URL.createObjectURL(file),
-        fileName: file.name,
-      });
-    }
+
     setMessages(prevMessages => [...prevMessages, ...newMessages]);
     setInput("");
     setSelectedImage(null);
     setImagePreview(null);
-    setAttachments([]);
     setUseChegggPrompt(false);
+
     try {
-      const response = await fetch("/api/ai-models/gemini-chat", {
+      const response = await fetch("/api/ai-models/deepseek-chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({
-          model: "gemini-pro",
           messages: [
-            { role: "system", content: "You are Gemini, an AI assistant created by Google. You are helpful, creative, and knowledgeable. When analyzing images or answering questions, provide detailed, comprehensive responses. Include relevant examples, explanations, and context. For image analysis, describe all visible elements, their relationships, and any notable details. For text queries, provide thorough explanations with supporting information. Aim for detailed, well-structured responses that fully address the user's query." },
             ...messages.map(msg => ({ role: msg.role, content: msg.content })),
             ...newMessages.map(msg => ({ role: msg.role, content: msg.content }))
           ],
-          temperature: 0.7,
-          max_tokens: 1000
+          useChegggPrompt
         })
       });
-      const data = await response.json();
-      if (!response.ok || !data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        throw new Error(data.error || 'Invalid response format');
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || `API error: ${response.status}`);
       }
+
+      const data = await response.json();
+      
+      if (!data.choices?.[0]?.message?.content) {
+        throw new Error('Invalid response format');
+      }
+
       setMessages(prevMessages => [...prevMessages, {
         role: "assistant",
-        content: data.candidates[0].content.parts[0].text,
+        content: data.choices[0].message.content,
         type: "text",
-        id: Date.now().toString()
+        id: (Date.now() + 2).toString()
       }]);
     } catch (error) {
+      console.error("Error:", error);
       setMessages(prevMessages => [...prevMessages, {
         role: "assistant",
         content: error instanceof Error ? error.message : "Sorry, there was an error processing your message.",
         type: "text",
-        id: Date.now().toString()
+        id: (Date.now() + 1).toString()
       }]);
+      toast.error(error instanceof Error ? error.message : "Failed to get response from DeepSeek");
     } finally {
       setIsLoading(false);
       setIsThinking(false);
     }
-  }, [input, messages, isLoading, selectedImage, imagePreview, attachments, useChegggPrompt]);
+  }, [input, messages, isLoading, selectedImage, imagePreview, useChegggPrompt, navigate]);
 
-  const renderMessage = (message: Message) => {
+  const renderMessage = (message: Message, index: number) => {
     const isUser = message.role === "user";
     const messageText = message.content || "";
     
@@ -304,42 +269,35 @@ export function Gemini() {
                 />
               </div>
             )}
-            {message.type === "file" && (
-              <div className="flex items-center gap-2 mb-2">
-                <Paperclip className="h-4 w-4" />
-                <a
-                  href={message.fileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm underline"
-                >
-                  {message.fileName}
-                </a>
-              </div>
-            )}
-            <div className="flex items-center gap-2 mb-2">
-              <span className="font-semibold">Answer:</span>
-              <label className="flex items-center cursor-pointer">
-                <span className="mr-1">Rendered</span>
-                <input
-                  type="checkbox"
-                  checked={showRaw}
-                  onChange={() => setShowRaw((v) => !v)}
-                  className="mx-1"
-                />
-                <span>Raw Text</span>
-              </label>
-            </div>
             <div className="prose prose-sm max-w-none whitespace-pre-wrap">
-              {message.role === "assistant" && showRaw
-                ? <pre>{message.content}</pre>
-                : <span dangerouslySetInnerHTML={{ __html: marked.parse(message.content) }} />}
+              {message.isRaw ? (
+                <pre className="text-sm">{messageText}</pre>
+              ) : (
+                <KatexMarkdownRenderer markdown={messageText} />
+              )}
             </div>
           </div>
           <div className={cn(
             "absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity",
             isUser ? "text-primary-foreground/70" : "text-muted-foreground"
           )}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 hover:bg-background/80"
+              onClick={() => {
+                setMessages(prevMessages => 
+                  prevMessages.map(msg => 
+                    msg.id === message.id 
+                      ? { ...msg, isRaw: !msg.isRaw }
+                      : msg
+                  )
+                );
+              }}
+              title={message.isRaw ? "Show rendered" : "Show raw"}
+            >
+              <Code className="h-3 w-3" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -359,9 +317,55 @@ export function Gemini() {
     );
   };
 
+  const createNewChat = () => {
+    const newChatId = Date.now().toString();
+    const newChat = {
+      id: newChatId,
+      title: "New Chat",
+      timestamp: Date.now()
+    };
+    setChatHistory(prev => [newChat, ...prev]);
+    setCurrentChatId(newChatId);
+    setMessages([]);
+    setSelectedImage(null);
+    setImagePreview(null);
+    localStorage.setItem('admin-deepseek-chat-history', JSON.stringify([]));
+  };
+
+  const switchChat = (chatId: string) => {
+    setCurrentChatId(chatId);
+    const savedMessages = localStorage.getItem(`admin-deepseek-chat-${chatId}`);
+    setMessages(savedMessages ? JSON.parse(savedMessages) : []);
+  };
+
+  // Mock admin stats
+  const stats = [
+    { label: "Total Messages", value: 432 },
+    { label: "Credits Used", value: 99 },
+    { label: "Active Users", value: 7 },
+    { label: "Errors", value: 2 },
+  ];
+
   return (
-    <Layout>
-      <div className="flex h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-[calc(100vh-4rem)] gap-4">
+      {/* Admin Monitoring Panel */}
+      <Card className="mb-2">
+        <CardHeader>
+          <CardTitle>DeepSeek Chatbot Monitoring</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-6">
+            {stats.map((stat) => (
+              <div key={stat.label} className="flex flex-col items-center">
+                <span className="text-lg font-bold">{stat.value}</span>
+                <span className="text-xs text-muted-foreground">{stat.label}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex h-[calc(100vh-12rem)]">
         {/* Sidebar */}
         <div className="w-64 border-r bg-muted/40 p-4">
           <Button
@@ -372,7 +376,7 @@ export function Gemini() {
             <Plus className="h-4 w-4 mr-2" />
             New Chat
           </Button>
-          <ScrollArea className="h-[calc(100vh-8rem)]">
+          <ScrollArea className="h-[calc(100vh-16rem)]">
             <div className="space-y-2">
               {chatHistory.map((chat) => (
                 <Button
@@ -399,16 +403,16 @@ export function Gemini() {
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ duration: 0.3 }}
-                    className="w-10 h-10 rounded-lg flex items-center justify-center bg-gradient-to-br from-yellow-500 to-orange-600"
+                    className="w-10 h-10 rounded-lg flex items-center justify-center bg-gradient-to-br from-blue-500 to-blue-600"
                   >
                     <Bot className="w-6 h-6 text-white" />
                   </motion.div>
                   <div>
                     <CardTitle className="text-xl font-bold">
-                      Gemini Chat
+                      DeepSeek Chat
                     </CardTitle>
                     <p className="text-sm text-muted-foreground">
-                      Advanced AI assistant specialized in creative and analytical tasks
+                      Advanced AI model specialized in complex reasoning and analysis
                     </p>
                   </div>
                 </div>
@@ -422,11 +426,11 @@ export function Gemini() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="h-[calc(100%-5rem)]">
-              <ScrollArea ref={scrollRef} className="h-[calc(100%-8rem)] mb-4">
+            <CardContent className="h-[calc(100%-4rem)]">
+              <ScrollArea ref={scrollRef} className="flex-1 mb-4">
                 <div className="space-y-4 p-4">
                   <AnimatePresence>
-                    {messages.map((message) => renderMessage(message))}
+                    {messages.map((message) => renderMessage(message, 0))}
                     {isThinking && (
                       <motion.div
                         initial={{ opacity: 0, y: 20 }}
@@ -435,7 +439,7 @@ export function Gemini() {
                         className="flex items-center gap-2 text-muted-foreground"
                       >
                         <Sparkles className="h-4 w-4 animate-pulse" />
-                        <span className="text-sm">Gemini is thinking...</span>
+                        <span className="text-sm">DeepSeek is thinking...</span>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -460,33 +464,12 @@ export function Gemini() {
                 </div>
               )}
 
-              {attachments.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {attachments.map((file, index) => (
-                    <span
-                      key={index}
-                      className="flex items-center gap-2 bg-muted px-2 py-1 rounded"
-                    >
-                      {file.name}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-4 w-4 p-0"
-                        onClick={() => removeAttachment(index)}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </span>
-                  ))}
-                </div>
-              )}
-
               <div className="flex gap-2">
                 <input
                   type="file"
                   ref={fileInputRef}
-                  onChange={handleFileSelect}
-                  multiple
+                  onChange={handleImageSelect}
+                  accept="image/*"
                   className="hidden"
                 />
                 <Button
@@ -494,36 +477,37 @@ export function Gemini() {
                   size="icon"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isLoading}
+                  className="shrink-0"
                 >
-                  <Paperclip className="h-4 w-4" />
+                  <ImageIcon className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant={useChegggPrompt ? "default" : "outline"}
+                  onClick={() => setUseChegggPrompt(!useChegggPrompt)}
+                  disabled={isLoading}
+                  className={cn(
+                    "shrink-0 gap-2",
+                    useChegggPrompt && "bg-primary text-primary-foreground hover:bg-primary/90"
+                  )}
+                >
+                  <Sparkles className={cn("h-4 w-4", useChegggPrompt && "animate-pulse")} />
+                  <span className="text-sm font-medium">
+                    {useChegggPrompt ? "Cheggg Mode Active" : "Enable Cheggg Mode"}
+                  </span>
                 </Button>
                 <Input
                   ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-                  placeholder="Chat with Gemini..."
+                  placeholder="Chat with DeepSeek..."
                   className="flex-1"
                   disabled={isLoading}
                 />
                 <Button
-                  variant={isRecording ? "destructive" : "outline"}
-                  size="icon"
-                  onClick={() => setIsRecording(!isRecording)}
-                >
-                  <Mic className="h-4 w-4" />
-                </Button>
-                <Button
-                  onClick={handleChegggPromptClick}
-                  disabled={isLoading}
-                  className="bg-yellow-400 text-black"
-                >
-                  Cheggg Prompt
-                </Button>
-                <Button 
-                  onClick={handleSend} 
-                  disabled={isLoading || (!input.trim() && !selectedImage && attachments.length === 0)}
-                  className="min-w-[80px]"
+                  onClick={handleSend}
+                  disabled={isLoading || (!input.trim() && !selectedImage)}
+                  className="min-w-[80px] shrink-0"
                 >
                   {isLoading ? (
                     <Sparkles className="h-4 w-4 animate-pulse" />
@@ -536,6 +520,54 @@ export function Gemini() {
           </Card>
         </div>
       </div>
-    </Layout>
+    </div>
   );
 }
+
+function KatexMarkdownRenderer({ markdown }: { markdown: string }) {
+  // Split the markdown into parts: text, inline math ($...$), and block math ($$...$$)
+  // This is a simple parser; for more complex needs, use a markdown-it plugin
+  const parts = [];
+  let text = markdown;
+  const blockMathRegex = /\$\$([\s\S]+?)\$\$/g;
+  let lastIndex = 0;
+  let match;
+  while ((match = blockMathRegex.exec(markdown))) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', value: markdown.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: 'block', value: match[1] });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < markdown.length) {
+    text = markdown.slice(lastIndex);
+  } else {
+    text = '';
+  }
+  // Now split the remaining text by inline math
+  const inlineMathRegex = /\$([^$\n]+?)\$/g;
+  let lastInline = 0;
+  let inlineMatch;
+  while ((inlineMatch = inlineMathRegex.exec(text))) {
+    if (inlineMatch.index > lastInline) {
+      parts.push({ type: 'text', value: text.slice(lastInline, inlineMatch.index) });
+    }
+    parts.push({ type: 'inline', value: inlineMatch[1] });
+    lastInline = inlineMatch.index + inlineMatch[0].length;
+  }
+  if (lastInline < text.length) {
+    parts.push({ type: 'text', value: text.slice(lastInline) });
+  }
+  // Render all parts, stripping unmatched $ or $$
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.type === 'block') return <BlockMath key={i}>{part.value}</BlockMath>;
+        if (part.type === 'inline') return <InlineMath key={i}>{part.value}</InlineMath>;
+        // Strip any unmatched $ or $$ from text parts
+        const clean = part.value.replace(/\${1,2}/g, '');
+        return <span key={i} dangerouslySetInnerHTML={{ __html: marked(clean) }} />;
+      })}
+    </>
+  );
+} 

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useState } from "react";
 import { Send } from "lucide-react";
+import { Toaster } from 'react-hot-toast';
 
 export function Chat() {
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
@@ -29,7 +30,12 @@ export function Chat() {
       });
 
       const data = await response.json();
-      setMessages([...newMessages, { role: "assistant", content: data.message }]);
+      console.log('OpenRouter API response:', data);
+      if (!response.ok || !data.choices?.[0]?.message?.content) {
+        console.error('Full backend response:', data);
+        throw new Error(data?.error || 'Invalid response format');
+      }
+      setMessages([...newMessages, { role: "assistant", content: data.choices[0].message.content }]);
     } catch (error) {
       console.error("Error sending message:", error);
     }
@@ -37,6 +43,7 @@ export function Chat() {
 
   return (
     <Layout>
+      <Toaster />
       <div className="flex flex-col h-[calc(100vh-4rem)]">
         <div className="flex-1 p-4">
           <Card className="h-full">

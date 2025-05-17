@@ -21,6 +21,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { toast } from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 interface Message {
   role: string;
@@ -28,6 +30,8 @@ interface Message {
   type: "text" | "image" | "file" | "voice";
   fileUrl?: string;
   fileName?: string;
+  id: string;
+  imageUrl?: string;
 }
 
 export function ChatbotSelection() {
@@ -38,11 +42,13 @@ export function ChatbotSelection() {
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const [useChegggPrompt, setUseChegggPrompt] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     // Extract model name from URL path
@@ -96,178 +102,89 @@ export function ChatbotSelection() {
   };
 
   const handleSend = async () => {
-    if (!input.trim() && attachments.length === 0) return;
+    if ((!input.trim() && !attachments.length) || isLoading) return;
 
     const token = localStorage.getItem("token");
     if (!token) {
-      setMessages(prevMessages => [...prevMessages, { 
-        role: "assistant", 
-        content: "Please log in to continue chatting.", 
-        type: "text" 
-      }]);
+      toast.error("Please log in to continue");
+      navigate("/login");
       return;
     }
 
     setIsLoading(true);
+    setIsThinking(true);
+
     const newMessages: Message[] = [];
-
-    let systemPrompt = "";
-    if (useChegggPrompt) {
-      systemPrompt = "Always answer in exactly 3 steps, with a clear explanation for each step, and provide a final summary. Use markdown formatting for headings, bold, and lists. Example format: ...";
-    }
-
-    // Add text message if exists
     if (input.trim()) {
-      newMessages.push({ role: "user", content: input, type: "text" });
+      newMessages.push({
+        role: "user",
+        content: input,
+        type: "text",
+        id: Date.now().toString()
+      });
+    }
+    if (attachments.length > 0) {
+      newMessages.push({
+        role: "user",
+        content: "Analyze these images:",
+        type: "image",
+        id: (Date.now() + 1).toString(),
+        imageUrl: URL.createObjectURL(attachments[0])
+      });
     }
 
-    // Add attachments
-    for (const file of attachments) {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      try {
-        const uploadResponse = await fetch("http://localhost:5000/api/upload", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          body: formData,
-        });
-
-        if (!uploadResponse.ok) {
-          throw new Error('Failed to upload file');
-        }
-
-        const { url } = await uploadResponse.json();
-        newMessages.push({
-          role: "user",
-          content: url,
-          type: file.type.startsWith("image/") ? "image" : "file",
-          fileUrl: url,
-          fileName: file.name,
-        });
-      } catch (error) {
-        console.error("Error uploading file:", error);
-        setMessages(prevMessages => [...prevMessages, { 
-          role: "assistant", 
-          content: "Failed to upload file. Please try again.", 
-          type: "text" 
-        }]);
-        setIsLoading(false);
-        return;
-      }
-    }
-
-    setMessages([...messages, ...newMessages]);
+    setMessages(prevMessages => [...prevMessages, ...newMessages]);
     setInput("");
     setAttachments([]);
     setUseChegggPrompt(false);
 
     try {
-      if (model === 'deepseek') {
-        try {
-          // Use OpenRouter API for DeepSeek
-          const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              "Authorization": "Bearer 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",
-              "HTTP-Referer": window.location.origin,
-              "X-Title": "Cheggie AI Nexus",
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              "model": "deepseek/deepseek-r1:free",
-              "messages": [
-                ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
-                ...messages.map(msg => ({
-                  role: msg.role,
-                  content: msg.content
-                })),
-                ...newMessages.map(msg => ({
-                  role: msg.role,
-                  content: msg.content
-                }))
-              ],
-              "temperature": 0.7,
-              "max_tokens": 1000
-            })
-          });
+      const systemPrompt = useChegggPrompt ? "Always answer in exactly 3 steps, with a clear explanation for each step, and provide a final summary. Use markdown formatting for headings, bold, and lists." : "";
+      const response = await fetch(`/api/ai-models/${model}-chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          messages: [
+            ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+            ...messages.map(msg => ({ role: msg.role, content: msg.content })),
+            ...newMessages.map(msg => ({ role: msg.role, content: msg.content }))
+          ],
+          useChegggPrompt
+        })
+      });
 
-          // Check if the response is JSON
-          const contentType = openRouterResponse.headers.get("content-type");
-          if (!contentType || !contentType.includes("application/json")) {
-            const text = await openRouterResponse.text();
-            console.error("Non-JSON response:", text);
-            throw new Error("Invalid response format from OpenRouter API");
-          }
-
-          if (!openRouterResponse.ok) {
-            const errorData = await openRouterResponse.json();
-            throw new Error(errorData.error?.message || `OpenRouter API error: ${openRouterResponse.status}`);
-          }
-
-          const openRouterData = await openRouterResponse.json();
-          
-          if (!openRouterData.choices?.[0]?.message?.content) {
-            console.error("Invalid response structure:", openRouterData);
-            throw new Error('Invalid response format from DeepSeek');
-          }
-
-          const assistantMessage = openRouterData.choices[0].message;
-          setMessages(prevMessages => [...prevMessages, { 
-            role: "assistant", 
-            content: assistantMessage.content, 
-            type: "text" 
-          }]);
-        } catch (error) {
-          console.error("OpenRouter API error:", error);
-          setMessages(prevMessages => [...prevMessages, { 
-            role: "assistant", 
-            content: error instanceof Error ? error.message : "Failed to get response from DeepSeek. Please try again.", 
-            type: "text" 
-          }]);
-          setIsLoading(false);
-          return;
-        }
-      } else {
-        // Use default backend API for other models
-        const response = await fetch(`http://localhost:5000/api/chat/${model}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            messages: [
-              ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
-              ...messages,
-              ...newMessages
-            ],
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || 'Failed to get response from the server');
-        }
-
-        const data = await response.json();
-        setMessages(prevMessages => [...prevMessages, { 
-          role: "assistant", 
-          content: data.message, 
-          type: "text" 
-        }]);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error?.message || `API error: ${response.status}`);
       }
-    } catch (error) {
-      console.error("Error sending message:", error);
-      setMessages(prevMessages => [...prevMessages, { 
-        role: "assistant", 
-        content: error instanceof Error ? error.message : "Sorry, there was an error processing your message. Please try again.", 
-        type: "text" 
+
+      const data = await response.json();
+      
+      if (!data.choices?.[0]?.message?.content) {
+        throw new Error('Invalid response format');
+      }
+
+      setMessages(prevMessages => [...prevMessages, {
+        role: "assistant",
+        content: data.choices[0].message.content,
+        type: "text",
+        id: (Date.now() + 2).toString()
       }]);
+    } catch (error) {
+      console.error("Error:", error);
+      setMessages(prevMessages => [...prevMessages, {
+        role: "assistant",
+        content: error instanceof Error ? error.message : "Sorry, there was an error processing your message.",
+        type: "text",
+        id: (Date.now() + 1).toString()
+      }]);
+      toast.error(error instanceof Error ? error.message : "Failed to get response from the AI model");
     } finally {
       setIsLoading(false);
+      setIsThinking(false);
     }
   };
 
