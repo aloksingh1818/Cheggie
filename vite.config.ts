@@ -4,6 +4,12 @@ import path from "path";
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
   server: {
     port: process.env.PORT || 3000,
     host: '0.0.0.0',
@@ -12,14 +18,15 @@ export default defineConfig({
       '/api': process.env.VITE_API_URL || 'http://localhost:5000',
     },
   },
-  plugins: [react()],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
-  },
   build: {
     outDir: 'dist',
-    sourcemap: true
-  }
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+        },
+      },
+    },
+  },
 });
