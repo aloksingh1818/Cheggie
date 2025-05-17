@@ -5,10 +5,11 @@ import path from "path";
 // https://vitejs.dev/config/
 export default defineConfig({
   server: {
-    host: "::",
-    port: 8080,
+    port: process.env.PORT || 3000,
+    host: '0.0.0.0',
+    strictPort: true,
     proxy: {
-      '/api': 'http://localhost:5000',
+      '/api': process.env.VITE_API_URL || 'http://localhost:5000',
     },
   },
   plugins: [react()],
@@ -17,4 +18,8 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    outDir: 'dist',
+    sourcemap: true
+  }
 });
