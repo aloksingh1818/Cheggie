@@ -11,12 +11,19 @@ export function Dashboard() {
     navigate("/login");
   };
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good Morning";
+    if (hour < 18) return "Good Afternoon";
+    return "Good Evening";
+  };
+
   return (
     <Layout>
       <div className="flex flex-col gap-6">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Welcome, {user?.name}</h1>
+            <h1 className="text-3xl font-bold tracking-tight">{getGreeting()}, {user?.name}</h1>
             <p className="text-muted-foreground">
               Manage your AI-powered learning experience
             </p>
