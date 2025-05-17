@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
+import { API_ENDPOINTS } from "@/config/api";
 
 interface User {
   id: string;
-  email: string;
   name: string;
-  role: "user" | "admin";
+  email: string;
+  role: string;
 }
 
 export function useAuth() {
@@ -32,7 +33,7 @@ export function useAuth() {
 
   const login = async (email: string, password: string) => {
     try {
-      const response = await fetch("http://localhost:5000/api/auth/login", {
+      const response = await fetch(API_ENDPOINTS.auth.login, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -65,7 +66,7 @@ export function useAuth() {
 
   const register = async (userData: { name: string; email: string; password: string }) => {
     try {
-      const response = await fetch("http://localhost:5000/api/auth/register", {
+      const response = await fetch(API_ENDPOINTS.auth.register, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
